@@ -4,6 +4,7 @@
 
 _howdy() {
 	local cur prev opts
+	local config_path="@config_path@"
 	COMPREPLY=()
 	# The argument typed so far
 	cur="${COMP_WORDS[COMP_CWORD]}"
@@ -20,12 +21,12 @@ _howdy() {
 			;;
 		# For disable, grab the current "disabled" config option and give the reverse
 		"disable")
-			local status=$(cut -d'=' -f2 <<< $(cat /lib/security/howdy/config.ini | grep 'disabled =') | xargs echo -n)
+			local status=$(cut -d'=' -f2 <<< $(cat $config_path | grep 'disabled =') | xargs echo -n)
 
 			[ "$status" == "false" ] && COMPREPLY="true" || COMPREPLY="false"
 			return 0
 			;;
-		# List the users availible
+		# List the users available
 		"-U")
 			COMPREPLY=( $(compgen -u -- ${cur}) )
 			return 0

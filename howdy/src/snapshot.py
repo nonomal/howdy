@@ -3,19 +3,18 @@
 # Import modules
 import cv2
 import os
-import datetime
+from datetime import timezone, datetime
 import numpy as np
+import paths_factory
 
 
 def generate(frames, text_lines):
-	"""Generate a shapshot from given frames"""
+	"""Generate a snapshot from given frames"""
 
 	# Don't execute if no frames were given
 	if len(frames) == 0:
 		return
 
-	# Get the path to the containing folder
-	abpath = os.path.dirname(os.path.abspath(__file__))
 	# Get frame dimensions
 	frame_height, frame_width, cc = frames[0].shape
 	# Spread the given frames out horizontally
@@ -31,7 +30,7 @@ def generate(frames, text_lines):
 	# Add the Howdy logo if there's space to do so
 	if len(frames) > 1:
 		# Load the logo from file
-		logo = cv2.imread(abpath + "/logo.png")
+		logo = cv2.imread(paths_factory.logo_path())
 		# Calculate the position of the logo
 		logo_y = frame_height + 20
 		logo_x = frame_width * len(frames) - 210
@@ -50,13 +49,14 @@ def generate(frames, text_lines):
 		line_number += 1
 
 	# Made sure a snapshot folder exist
-	if not os.path.exists(abpath + "/snapshots"):
-		os.makedirs(abpath + "/snapshots")
+	if not os.path.exists(paths_factory.snapshots_dir_path()):
+		os.makedirs(paths_factory.snapshots_dir_path())
 
 	# Generate a filename based on the current time
-	filename = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S.jpg")
+	filename = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.jpg")
+	filepath = paths_factory.snapshot_path(filename)
 	# Write the image to that file
-	cv2.imwrite(abpath + "/snapshots/" + filename, snap)
+	cv2.imwrite(filepath, snap)
 
 	# Return the saved file location
-	return abpath + "/snapshots/" + filename
+	return filepath

@@ -1,9 +1,9 @@
-#!/usr/bin/env python3
 # CLI directly called by running the howdy command
 
 # Import required modules
 import sys
 import os
+import pwd
 import getpass
 import argparse
 import builtins
@@ -11,21 +11,17 @@ import builtins
 from i18n import _
 
 # Try to get the original username (not "root") from shell
-try:
-	user = os.getlogin()
-except Exception:
-	user = os.environ.get("SUDO_USER")
+sudo_user = os.environ.get("SUDO_USER")
+doas_user = os.environ.get("DOAS_USER")
+pkexec_uid = os.environ.get("PKEXEC_UID")
+pkexec_user = pwd.getpwuid(int(pkexec_uid))[0] if pkexec_uid else ""
+env_user = getpass.getuser()
+user = next((u for u in [sudo_user, doas_user, pkexec_user, env_user] if u), "")
 
-# If that fails, try to get the direct user
-if user == "root" or user is None:
-	env_user = getpass.getuser().strip()
-
-	# If even that fails, error out
-	if env_user == "":
-		print(_("Could not determine user, please use the --user flag"))
-		sys.exit(1)
-	else:
-		user = env_user
+# If that fails, error out
+if user == "":
+    print(_("Could not determine user, please use the --user flag"))
+    sys.exit(1)
 
 # Basic command setup
 parser = argparse.ArgumentParser(
@@ -38,14 +34,14 @@ parser = argparse.ArgumentParser(
 
 # Add an argument for the command
 parser.add_argument(
-	_("command"),
+	"command",
 	help=_("The command option to execute, can be one of the following: add, clear, config, disable, list, remove, snapshot, set, test or version."),
 	metavar="command",
 	choices=["add", "clear", "config", "disable", "list", "remove", "set", "snapshot", "test", "version"])
 
-# Add an argument for the extra arguments of diable and remove
+# Add an argument for the extra arguments of disable and remove
 parser.add_argument(
-	_("arguments"),
+	"arguments",
 	help=_("Optional arguments for the add, disable, remove and set commands."),
 	nargs="*")
 
@@ -94,7 +90,7 @@ if os.geteuid() != 0:
 	print("\tsudo howdy " + " ".join(sys.argv[1:]))
 	sys.exit(1)
 
-# Beond this point the user can't change anymore, if we still have root as user we need to abort
+# Beyond this point the user can't change anymore, if we still have root as user we need to abort
 if args.user == "root":
 	print(_("Can't run howdy commands as root, please run this command with the --user flag"))
 	sys.exit(1)

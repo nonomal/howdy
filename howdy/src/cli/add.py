@@ -8,6 +8,7 @@ import json
 import configparser
 import builtins
 import numpy as np
+import paths_factory
 
 from recorders.video_capture import VideoCapture
 from i18n import _
@@ -26,39 +27,36 @@ except ImportError as err:
 # OpenCV needs to be imported after dlib
 import cv2
 
-# Get the absolute path to the current directory
-path = os.path.abspath(__file__ + "/..")
-
 # Test if at lest 1 of the data files is there and abort if it's not
-if not os.path.isfile(path + "/../dlib-data/shape_predictor_5_face_landmarks.dat"):
+if not os.path.isfile(paths_factory.shape_predictor_5_face_landmarks_path()):
 	print(_("Data files have not been downloaded, please run the following commands:"))
-	print("\n\tcd " + os.path.realpath(path + "/../dlib-data"))
+	print("\n\tcd " + paths_factory.dlib_data_dir_path())
 	print("\tsudo ./install.sh\n")
 	sys.exit(1)
 
 # Read config from disk
 config = configparser.ConfigParser()
-config.read(path + "/../config.ini")
+config.read(paths_factory.config_file_path())
 
 use_cnn = config.getboolean("core", "use_cnn", fallback=False)
 if use_cnn:
-	face_detector = dlib.cnn_face_detection_model_v1(path + "/../dlib-data/mmod_human_face_detector.dat")
+	face_detector = dlib.cnn_face_detection_model_v1(paths_factory.mmod_human_face_detector_path())
 else:
 	face_detector = dlib.get_frontal_face_detector()
 
-pose_predictor = dlib.shape_predictor(path + "/../dlib-data/shape_predictor_5_face_landmarks.dat")
-face_encoder = dlib.face_recognition_model_v1(path + "/../dlib-data/dlib_face_recognition_resnet_model_v1.dat")
+pose_predictor = dlib.shape_predictor(paths_factory.shape_predictor_5_face_landmarks_path())
+face_encoder = dlib.face_recognition_model_v1(paths_factory.dlib_face_recognition_resnet_model_v1_path())
 
 user = builtins.howdy_user
 # The permanent file to store the encoded model in
-enc_file = path + "/../models/" + user + ".dat"
+enc_file = paths_factory.user_model_path(user)
 # Known encodings
 encodings = []
 
 # Make the ./models folder if it doesn't already exist
-if not os.path.exists(path + "/../models"):
+if not os.path.exists(paths_factory.user_models_dir_path()):
 	print(_("No face model folder found, creating one"))
-	os.makedirs(path + "/../models")
+	os.makedirs(paths_factory.user_models_dir_path())
 
 # To try read a premade encodings file if it exists
 try:
@@ -78,13 +76,16 @@ if not builtins.howdy_args.plain:
 # Set the default label
 label = "Initial model"
 
+# some id's can be skipped, but the last id is always the maximum
+next_id = encodings[-1]["id"] + 1 if encodings else 0
+
 # Get the label from the cli arguments if provided
 if builtins.howdy_args.arguments:
 	label = builtins.howdy_args.arguments[0]
 
-# If models already exist, set that default label
-elif encodings:
-	label = _("Model #") + str(len(encodings) + 1)
+# Or set the default label
+else:
+	label = _("Model #") + str(next_id)
 
 # Keep de default name if we can't ask questions
 if builtins.howdy_args.y:
@@ -106,7 +107,7 @@ if "," in label:
 insert_model = {
 	"time": int(time.time()),
 	"label": label,
-	"id": len(encodings),
+	"id": next_id,
 	"data": []
 }
 
@@ -131,7 +132,7 @@ dark_tries = 0
 dark_running_total = 0
 face_locations = None
 
-dark_threshold = config.getfloat("video", "dark_threshold")
+dark_threshold = config.getfloat("video", "dark_threshold", fallback=60)
 
 clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
@@ -176,7 +177,7 @@ while frames < 60:
 video_capture.release()
 
 # If we've found no faces, try to determine why
-if face_locations is None or not face_locations:
+if not face_locations:
 	if valid_frames == 0:
 		print(_("Camera saw only black frames - is IR emitter working?"))
 	elif valid_frames == dark_tries:
@@ -186,7 +187,7 @@ if face_locations is None or not face_locations:
 		print(_("No face detected, aborting"))
 	sys.exit(1)
 
-# If more than 1 faces are detected we can't know wich one belongs to the user
+# If more than 1 faces are detected we can't know which one belongs to the user
 elif len(face_locations) > 1:
 	print(_("Multiple faces detected, aborting"))
 	sys.exit(1)

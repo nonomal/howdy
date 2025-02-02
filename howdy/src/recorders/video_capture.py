@@ -24,7 +24,7 @@ class VideoCapture:
 		Config can either be a string to the path, or a pre-setup configparser.
 		"""
 
-		# Parse config from string if nedded
+		# Parse config from string if needed
 		if isinstance(config, str):
 			self.config = configparser.ConfigParser()
 			self.config.read(config)
@@ -33,11 +33,11 @@ class VideoCapture:
 
 		# Check device path
 		if not os.path.exists(self.config.get("video", "device_path")):
-			if self.config.getboolean("video", "warn_no_device"):
+			if self.config.getboolean("video", "warn_no_device", fallback=True):
 				print(_("Howdy could not find a camera device at the path specified in the config file."))
 				print(_("It is very likely that the path is not configured correctly, please edit the 'device_path' config value by running:"))
 				print("\n\tsudo howdy config\n")
-			sys.exit(1)
+			sys.exit(14)
 
 		# Create reader
 		# The internal video recorder
@@ -83,7 +83,7 @@ class VideoCapture:
 		ret, frame = self.internal.read()
 		if not ret:
 			print(_("Failed to read camera specified in the 'device_path' config option, aborting"))
-			sys.exit(1)
+			sys.exit(14)
 
 		try:
 			# Convert from color to grayscale
@@ -100,21 +100,22 @@ class VideoCapture:
 		"""
 		Sets up the video reader instance
 		"""
+		recording_plugin = self.config.get("video", "recording_plugin", fallback="opencv")
 
-		if self.config.get("video", "recording_plugin") == "ffmpeg":
+		if recording_plugin == "ffmpeg":
 			# Set the capture source for ffmpeg
 			from recorders.ffmpeg_reader import ffmpeg_reader
 			self.internal = ffmpeg_reader(
 				self.config.get("video", "device_path"),
-				self.config.get("video", "device_format")
+				self.config.get("video", "device_format", fallback="v4l2")
 			)
 
-		elif self.config.get("video", "recording_plugin") == "pyv4l2":
+		elif recording_plugin == "pyv4l2":
 			# Set the capture source for pyv4l2
 			from recorders.pyv4l2_reader import pyv4l2_reader
 			self.internal = pyv4l2_reader(
 				self.config.get("video", "device_path"),
-				self.config.get("video", "device_format")
+				self.config.get("video", "device_format", fallback="v4l2")
 			)
 
 		else:
@@ -123,6 +124,12 @@ class VideoCapture:
 				self.config.get("video", "device_path"),
 				cv2.CAP_V4L
 			)
+			# Set the capture frame rate
+			# Without this the first detected (and possibly lower) frame rate is used, -1 seems to select the highest
+			# Use 0 as a fallback to avoid breaking an existing setup, new installs should default to -1
+			self.fps = self.config.getint("video", "device_fps", fallback=0)
+			if self.fps != 0:
+				self.internal.set(cv2.CAP_PROP_FPS, self.fps)
 
 		# Force MJPEG decoding if true
 		if self.config.getboolean("video", "force_mjpeg", fallback=False):

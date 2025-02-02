@@ -6,28 +6,28 @@ import os
 import json
 import time
 import builtins
+import paths_factory
 
 from i18n import _
 
-# Get the absolute path and the username
-path = os.path.dirname(os.path.realpath(__file__)) + "/.."
 user = builtins.howdy_user
 
 # Check if the models file has been created yet
-if not os.path.exists(path + "/models"):
+if not os.path.exists(paths_factory.user_models_dir_path()):
 	print(_("Face models have not been initialized yet, please run:"))
 	print("\n\tsudo howdy -U " + user + " add\n")
 	sys.exit(1)
 
 # Path to the models file
-enc_file = path + "/models/" + user + ".dat"
+enc_file = paths_factory.user_model_path(user)
 
 # Try to load the models file and abort if the user does not have it yet
 try:
 	encodings = json.load(open(enc_file))
 except FileNotFoundError:
-	print(_("No face model known for the user {}, please run:").format(user))
-	print("\n\tsudo howdy -U " + user + " add\n")
+	if not builtins.howdy_args.plain:
+		print(_("No face model known for the user {}, please run:").format(user))
+		print("\n\tsudo howdy -U " + user + " add\n")
 	sys.exit(1)
 
 # Print a header if we're not in plain mode
@@ -50,7 +50,7 @@ for enc in encodings:
 	# Format the time as ISO in the local timezone
 	print(time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(enc["time"])), end="")
 
-	# Seperate with commas again for machines, spaces otherwise
+	# Separate with commas again for machines, spaces otherwise
 	print("," if builtins.howdy_args.plain else "  ", end="")
 
 	# End with the label

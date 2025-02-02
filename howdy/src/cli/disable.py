@@ -6,11 +6,12 @@ import os
 import builtins
 import fileinput
 import configparser
+import paths_factory
 
 from i18n import _
 
 # Get the absolute filepath
-config_path = os.path.dirname(os.path.abspath(__file__)) + "/../config.ini"
+config_path = paths_factory.config_file_path()
 
 # Read config from disk
 config = configparser.ConfigParser()
@@ -35,13 +36,13 @@ else:
 	sys.exit(1)
 
 # Don't do anything when the state is already the requested one
-if out_value == config.get("core", "disabled"):
+if out_value == config.get("core", "disabled", fallback=True):
 	print(_("The disable option has already been set to ") + out_value)
 	sys.exit(1)
 
 # Loop though the config file and only replace the line containing the disable config
 for line in fileinput.input([config_path], inplace=1):
-	print(line.replace("disabled = " + config.get("core", "disabled"), "disabled = " + out_value), end="")
+	print(line.replace("disabled = " + config.get("core", "disabled", fallback=True), "disabled = " + out_value), end="")
 
 # Print what we just did
 if out_value == "true":

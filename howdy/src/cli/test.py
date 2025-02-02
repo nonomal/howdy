@@ -2,31 +2,33 @@
 
 # Import required modules
 import configparser
+import builtins
 import os
+import json
 import sys
 import time
 import dlib
 import cv2
-from recorders.video_capture import VideoCapture
+import numpy as np
+import paths_factory
 
 from i18n import _
-
-# Get the absolute path to the current file
-path = os.path.dirname(os.path.abspath(__file__))
+from recorders.video_capture import VideoCapture
 
 # Read config from disk
 config = configparser.ConfigParser()
-config.read(path + "/../config.ini")
+config.read(paths_factory.config_file_path())
 
-if config.get("video", "recording_plugin") != "opencv":
+if config.get("video", "recording_plugin", fallback="opencv") != "opencv":
 	print(_("Howdy has been configured to use a recorder which doesn't support the test command yet, aborting"))
 	sys.exit(12)
 
 video_capture = VideoCapture(config)
 
-# Read exposure and dark_thresholds from config to use in the main loop
+# Read config values to use in the main loop
+video_certainty = config.getfloat("video", "certainty", fallback=3.5) / 10
 exposure = config.getint("video", "exposure", fallback=-1)
-dark_threshold = config.getfloat("video", "dark_threshold")
+dark_threshold = config.getfloat("video", "dark_threshold", fallback=60)
 
 # Let the user know what's up
 print(_("""
@@ -55,10 +57,25 @@ use_cnn = config.getboolean('core', 'use_cnn', fallback=False)
 
 if use_cnn:
 	face_detector = dlib.cnn_face_detection_model_v1(
-		path + "/../dlib-data/mmod_human_face_detector.dat"
+		paths_factory.mmod_human_face_detector_path()
 	)
 else:
 	face_detector = dlib.get_frontal_face_detector()
+
+pose_predictor = dlib.shape_predictor(paths_factory.shape_predictor_5_face_landmarks_path())
+face_encoder = dlib.face_recognition_model_v1(paths_factory.dlib_face_recognition_resnet_model_v1_path())
+
+encodings = []
+models = None
+
+try:
+	user = builtins.howdy_user
+	models = json.load(open(paths_factory.user_model_path(user)))
+
+	for model in models:
+		encodings += model["data"]
+except FileNotFoundError:
+	pass
 
 clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
 
@@ -79,7 +96,7 @@ sec = int(time.time())
 # recognition time
 rec_tm = 0
 
-# Wrap everything in an keyboard interupt handler
+# Wrap everything in an keyboard interrupt handler
 try:
 	while True:
 		frame_tm = time.time()
@@ -98,7 +115,7 @@ try:
 			sec_frames = 0
 
 		# Grab a single frame of video
-		ret, frame = video_capture.read_frame()
+		orig_frame, frame = video_capture.read_frame()
 
 		frame = clahe.apply(frame)
 		# Make a frame to put overlays in
@@ -112,7 +129,7 @@ try:
 		hist = cv2.calcHist([frame], [0], None, [8], [0, 256])
 		# All values combined for percentage calculation
 		hist_total = int(sum(hist)[0])
-		# Fill with the overal containing percentage
+		# Fill with the overall containing percentage
 		hist_perc = []
 
 		# Loop though all values to calculate a percentage and add it to the overlay
@@ -120,7 +137,7 @@ try:
 			value_perc = float(value[0]) / hist_total * 100
 			hist_perc.append(value_perc)
 
-			# Top left pont, 10px margins
+			# Top left point, 10px margins
 			p1 = (20 + (10 * index), 10)
 			# Bottom right point makes the bar 10px thick, with an height of half the percentage
 			p2 = (10 + (10 * index), int(value_perc / 2 + 10))
@@ -142,10 +159,11 @@ try:
 			# Show that this is an ignored frame in the top right
 			cv2.putText(overlay, _("DARK FRAME"), (width - 68, 16), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 0, 255), 0, cv2.LINE_AA)
 		else:
-			# SHow that this is an active frame
+			# Show that this is an active frame
 			cv2.putText(overlay, _("SCAN FRAME"), (width - 68, 16), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 255, 0), 0, cv2.LINE_AA)
 
 			rec_tm = time.time()
+
 			# Get the locations of all faces and their locations
 			# Upsample it once
 			face_locations = face_detector(frame, 1)
@@ -156,6 +174,9 @@ try:
 				if use_cnn:
 					loc = loc.rect
 
+				# By default the circle around the face is red for no match
+				color = (0, 0, 230)
+
 				# Get the center X and Y from the rectangular points
 				x = int((loc.right() - loc.left()) / 2) + loc.left()
 				y = int((loc.bottom() - loc.top()) / 2) + loc.top()
@@ -165,8 +186,33 @@ try:
 				# Add 20% padding
 				r = int(r + (r * 0.2))
 
+				# If we have models defined for the current user
+				if models:
+					# Get the encoding of the face in the frame
+					face_landmark = pose_predictor(orig_frame, loc)
+					face_encoding = np.array(face_encoder.compute_face_descriptor(orig_frame, face_landmark, 1))
+
+					# Match this found face against a known face
+					matches = np.linalg.norm(encodings - face_encoding, axis=1)
+
+					# Get best match
+					match_index = np.argmin(matches)
+					match = matches[match_index]
+
+					# If a model matches
+					if 0 < match < video_certainty:
+						# Turn the circle green
+						color = (0, 230, 0)
+
+						# Print the name of the model next to the circle
+						circle_text = "{} (certainty: {})".format(models[match_index]["label"], round(match * 10, 3))
+						cv2.putText(overlay, circle_text, (int(x + r / 3), y - r), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 255, 0), 0, cv2.LINE_AA)
+					# If no approved matches, show red text
+					else:
+						cv2.putText(overlay, "no match", (int(x + r / 3), y - r), cv2.FONT_HERSHEY_SIMPLEX, .3, (0, 0, 255), 0, cv2.LINE_AA)
+
 				# Draw the Circle in green
-				cv2.circle(overlay, (x, y), r, (0, 0, 230), 2)
+				cv2.circle(overlay, (x, y), r, color, 2)
 
 		# Add the overlay to the frame with some transparency
 		alpha = 0.65
@@ -192,8 +238,8 @@ try:
 			# are captured and even after a delay it does not
 			# always work. Setting exposure at every frame is
 			# reliable though.
-			video_capture.intenal.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1.0)  # 1 = Manual
-			video_capture.intenal.set(cv2.CAP_PROP_EXPOSURE, float(exposure))
+			video_capture.internal.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1.0)  # 1 = Manual
+			video_capture.internal.set(cv2.CAP_PROP_EXPOSURE, float(exposure))
 
 # On ctrl+C
 except KeyboardInterrupt:
